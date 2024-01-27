@@ -1,6 +1,7 @@
 #include<stdlib.h>
 #include<sys/ioctl.h>
 #include<errno.h>
+#include<sys/types.h>
 #include<unistd.h>
 #include<termios.h>
 #include<ctype.h>
@@ -163,8 +164,9 @@ return 0;
 /**file i/o operations*/
 
 void editorOpen(){
-        char *line = "Hello Mom!";
-        ssize_t line_length=10;
+        char *line = "Hello, World!";
+        ssize_t line_length=13;
+
         E.row.size=line_length;
         E.row.chars=malloc(line_length+1);
         memcpy(E.row.chars, line,line_length);
@@ -202,26 +204,35 @@ void abFree(struct abuf *ab){
 void editorDrawRows(struct abuf *ab){
         int y;
         for(y=0;y<E.screenrows;y++){
-                if(y==E.screenrows/3){
-                   char welcome[80];
-                   int welcomelen=snprintf(welcome,sizeof(welcome),
-                   "Kilo editor -- Version %s", KILO_VERSION);
-             
-
-                   if(welcomelen > E.screencols) welcomelen=E.screencols;
-                   int padding=(E.screencols-welcomelen)/2;
-
+                if(y>=E.numrows){
+                        if(y==E.screenrows/3){
+                        char welcome[80];
+                        int welcomelen=snprintf(welcome,sizeof(welcome),
+                        "Kilo editor -- Version %s", KILO_VERSION);
                 
-                   if(padding){
-                        abAppend(ab,"~",1);
-                        padding--;
-                   }
-                   while(padding--) abAppend(ab, " ",1);             
-                   abAppend(ab,welcome,welcomelen);
 
+                        if(welcomelen > E.screencols) welcomelen=E.screencols;
+                        int padding=(E.screencols-welcomelen)/2;
+
+                        
+                        if(padding){
+                                abAppend(ab,"~",1);
+                                padding--;
+                        }
+                        while(padding--) abAppend(ab, " ",1);             
+                        abAppend(ab,welcome,welcomelen);
+
+                        }else{
+                                abAppend(ab,"~",1);
+                        }
                 }else{
-                        abAppend(ab,"~",1);
+                        //to make sure that the content fit
+                        // to the width of screen
+                        int len=E.row.size;
+                        if(len>E.screencols) len=E.screencols;
+                        abAppend(ab,E.row.chars, len);
                 }
+
                 abAppend(ab,"\x1b[K]",3);
                 //abAppend(ab,"~",1);
                 //abAppend(ab,"\x1b[K",3);
