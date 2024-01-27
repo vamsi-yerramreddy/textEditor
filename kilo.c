@@ -1,3 +1,6 @@
+#define _POSIX_C_SOURCE 200809L
+
+
 #include<stdlib.h>
 #include<sys/ioctl.h>
 #include<errno.h>
@@ -163,15 +166,29 @@ return 0;
 }
 /**file i/o operations*/
 
-void editorOpen(){
-        char *line = "Hello, World!";
-        ssize_t line_length=13;
+void editorOpen(char *fileName){
+        FILE *fp = fopen(fileName,"r");
+        if(!fp) die("invalid file pointer");
 
-        E.row.size=line_length;
-        E.row.chars=malloc(line_length+1);
-        memcpy(E.row.chars, line,line_length);
-        E.row.chars[line_length]='\0';
-        E.numrows=1;
+        char *line = NULL;
+        //linecapacity
+        size_t linecap=0;
+        ssize_t linelen;
+
+        linelen= getline(&line, &linecap,fp);
+        if(linelen !=-1){
+                while(linelen>0 && (line[linelen-1]=='\n' 
+                || line[linelen-1]=='\r'))
+                linelen--;
+
+                E.row.size=linelen;
+                E.row.chars=malloc(linelen+1);
+                memcpy(E.row.chars, line,linelen);
+                E.row.chars[linelen]='\0';
+                E.numrows=1;
+        }
+        free(line);
+        fclose(fp);
 }
 
 
@@ -205,7 +222,7 @@ void editorDrawRows(struct abuf *ab){
         int y;
         for(y=0;y<E.screenrows;y++){
                 if(y>=E.numrows){
-                        if(y==E.screenrows/3){
+                        if(E.numrows==0 && y==E.screenrows/3){
                         char welcome[80];
                         int welcomelen=snprintf(welcome,sizeof(welcome),
                         "Kilo editor -- Version %s", KILO_VERSION);
@@ -335,10 +352,13 @@ void initEditor(){
 }
 
 /** init **/
-int main(){
+int main(int argc, char *argv[]){
         enableRawMode();
         initEditor();
-        editorOpen();
+        if(argc>=2){
+                editorOpen(argv[1]);
+        }
+        //editorOpen();
      while(1) {
              editorRefreshScreen();
              editorProcessKeypress();
