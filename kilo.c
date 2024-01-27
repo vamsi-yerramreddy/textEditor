@@ -23,18 +23,19 @@ enum editorKey{
         END_KEY,
         DEL_KEY
 };
+//editor row -- Edrows/ 
 
-typedef struct erow{
+typedef struct edrow{
    int size;
    char *chars;
-} erow;
+} edrow;
 
 struct editorConfig{
         int cursorX, cursorY;
         int screenrows;
         int screencols;
         int numrows;
-        erow row;
+        edrow row;
         struct termios orig_termios;
 };
 
@@ -159,6 +160,20 @@ return 0;
 }
 
 }
+/**file i/o operations*/
+
+void editorOpen(){
+        char *line = "Hello Mom!";
+        ssize_t line_length=10;
+        E.row.size=line_length;
+        E.row.chars=malloc(line_length+1);
+        memcpy(E.row.chars, line,line_length);
+        E.row.chars[line_length]='\0';
+        E.numrows=1;
+}
+
+
+
 /*** BUFFER ***/
 
 struct abuf{
@@ -312,6 +327,7 @@ void initEditor(){
 int main(){
         enableRawMode();
         initEditor();
+        editorOpen();
      while(1) {
              editorRefreshScreen();
              editorProcessKeypress();
