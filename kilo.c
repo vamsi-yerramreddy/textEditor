@@ -39,7 +39,9 @@ struct editorConfig{
         int screenrows;
         int screencols;
         int numrows;
-        edrow row;
+        edrow *row;
+        int rowoff;//rowOffset
+        int coloff;
         struct termios orig_termios;
 };
 
@@ -150,19 +152,30 @@ return 0;
 int getWindowSize(int *rows, int *cols){
 struct winsize ws;
 
-if(ioctl(STDOUT_FILENO,TIOCGWINSZ, &ws)==-1 || ws.ws_col==0){
-   //we use large values of C so that the cursor will be at bottom of scrren
-        if(write(STDOUT_FILENO,"\x1b[999C\x1b[999B",12)!=12)    return -1;
+        if(ioctl(STDOUT_FILENO,TIOCGWINSZ, &ws)==-1 || ws.ws_col==0){
+        //we use large values of C so that the cursor will be at bottom of scrren
+                if(write(STDOUT_FILENO,"\x1b[999C\x1b[999B",12)!=12)    return -1;
 
-   return getCursorPosition(rows,cols);
+        return getCursorPosition(rows,cols);
 
+        }
+        else{
+        *cols=ws.ws_col;
+        *rows=ws.ws_row;
+        return 0;
+        }
 }
-else{
-  *cols=ws.ws_col;
-  *rows=ws.ws_row;
-return 0;
-}
 
+/**ROW OPERATiONs**/
+
+void editorAppendRow(char *s, size_t len){
+        E.row=realloc(E.row,sizeof(edrow)*(E.numrows+1));
+        int at=E.numrows;
+        E.row[at].size=len;
+        E.row[at].chars=malloc(len+1);
+        memcpy(E.row[at].chars,s,len);
+        E.row[at].chars[len]='\0';
+        E.numrows++;
 }
 /**file i/o operations*/
 
@@ -174,18 +187,11 @@ void editorOpen(char *fileName){
         //linecapacity
         size_t linecap=0;
         ssize_t linelen;
-
-        linelen= getline(&line, &linecap,fp);
-        if(linelen !=-1){
-                while(linelen>0 && (line[linelen-1]=='\n' 
+        while ((linelen= getline(&line, &linecap,fp))!=-1){
+            while(linelen>0 && (line[linelen-1]=='\n' 
                 || line[linelen-1]=='\r'))
                 linelen--;
-
-                E.row.size=linelen;
-                E.row.chars=malloc(linelen+1);
-                memcpy(E.row.chars, line,linelen);
-                E.row.chars[linelen]='\0';
-                E.numrows=1;
+                editorAppendRow(line, linelen);
         }
         free(line);
         fclose(fp);
@@ -216,12 +222,29 @@ void abFree(struct abuf *ab){
 }
 
 /*** OUTPUT ***/
+void editorScroll(){
+        if(E.cursorY<E.rowoff){
+                E.rowoff=E.cursorY;
+        }
+        if(E.cursorY>=E.rowoff+ E.screenrows){
+                E.rowoff=E.cursorY-E.screenrows+1;
+        }
+        //Horizontal Scroll
+        if(E.cursorX<E.coloff){
+                E.coloff=E.cursorX;
+        }
+        if(E.cursorX>=E.coloff + E.screencols){
+                E.coloff=E.cursorX-E.screencols+1;
+        }
+}
 
 /*** DRAWING and Welcome Message ***/
+
 void editorDrawRows(struct abuf *ab){
         int y;
         for(y=0;y<E.screenrows;y++){
-                if(y>=E.numrows){
+                int filerow=y+E.rowoff;
+                if(filerow>=E.numrows){
                         if(E.numrows==0 && y==E.screenrows/3){
                         char welcome[80];
                         int welcomelen=snprintf(welcome,sizeof(welcome),
@@ -245,35 +268,34 @@ void editorDrawRows(struct abuf *ab){
                 }else{
                         //to make sure that the content fit
                         // to the width of screen
-                        int len=E.row.size;
+                        int len=E.row[filerow].size - E.coloff;
+                        if(len<0)len=0;
                         if(len>E.screencols) len=E.screencols;
-                        abAppend(ab,E.row.chars, len);
+                        abAppend(ab,&E.row[filerow].chars[E.coloff], len);
                 }
 
                 abAppend(ab,"\x1b[K]",3);
-                //abAppend(ab,"~",1);
-                //abAppend(ab,"\x1b[K",3);
-
-        if(y<E.screenrows-1){
+            if(y<E.screenrows-1){
              abAppend(ab,"\r\n",2);
-          }
-      }
+           }
+       }
 }
 
 
 
 void editorRefreshScreen(){
+        editorScroll();
+
         struct abuf ab=ABUF_INIT;
         abAppend(&ab,"\x1b[?25l",6);
-
-        //abAppend(&ab,"\x1b[2J",4);
         abAppend(&ab,"\x1b[H",3);
 
         editorDrawRows(&ab);
         //to make the cursor start from the first 
         char buf[32];
-        snprintf(buf,sizeof(buf),"\x1b[%d;%dH", E.cursorY+1,
-        E.cursorX+1);
+        snprintf(buf, sizeof(buf),"\x1b[%d;%dH", (E.cursorY-E.rowoff)+1,(E.cursorX-E.coloff)+1);
+       // snprintf(buf,sizeof(buf),"\x1b[%d;%dH", E.cursorY+1,
+      //  E.cursorX+1);
         abAppend(&ab,buf,strlen(buf));
         
         abAppend(&ab,"\x1b[?25h",6);
@@ -282,15 +304,22 @@ void editorRefreshScreen(){
        abFree(&ab);
 }
 void editorMoveCursor(int key){
-        switch(key){
+        edrow *row=(E.cursorY>=E.numrows)?NULL : &E.row[E.cursorY];
+                switch(key){
                 case ARROW_LEFT:
                 if(E.cursorX!=0){
                         E.cursorX--;
+                }else if(E.cursorY>0){
+                        E.cursorY--;
+                        E.cursorX=E.row[E.cursorY].size;
                 }
                 break;
                 case ARROW_RIGHT:
-                if(E.cursorX!=E.screencols-1){
+                if(row && E.cursorX<row->size){               
                 E.cursorX++;
+                }else if(row && E.cursorX==row->size){
+                        E.cursorY++;
+                        E.cursorX=0;
                 }
                 break;
                 case ARROW_UP:
@@ -299,10 +328,15 @@ void editorMoveCursor(int key){
                 }
                 break;
                 case ARROW_DOWN:
-                if(E.cursorY!=E.screenrows-1){
+                if(E.cursorY < E.numrows){
                 E.cursorY++;
                 }
                 break;
+        }
+        row=(E.cursorY>=E.numrows)?NULL :&E.row[E.cursorY];
+        int rowlen=row?row->size:0;
+        if(E.cursorX>rowlen){
+                E.cursorX=rowlen;
         }
 }
 void editorProcessKeypress(){
@@ -347,6 +381,9 @@ void initEditor(){
       E.cursorX=0;
       E.cursorY=0;
       E.numrows=0;  
+      E.row=NULL;
+      E.rowoff=0;
+      E.coloff=0;
      if(getWindowSize(&E.screenrows,&E.screencols)==-1) die("getWindowSize");
 
 }
